@@ -1,0 +1,67 @@
+version: '3'
+
+volumes:
+  pgdata:
+    driver: local
+  redis:
+    driver: local
+
+services:
+  # PG database and result celery backend
+  db:
+    image: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # Redis - celery queue
+  redis:
+    image: redis:latest
+    command: redis-server
+    volumes:
+      - redis:/data
+    ports:
+     - '6379:6379'
+
+  # Celery worker
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: bash -c "scripts/celery-docker.bash"
+    environment:
+      DB_HOSTNAME: db
+      REDIS_HOST: redis://redis:6379/0
+    volumes:
+      - .:/code
+    links:
+      - redis
+      - db
+
+  # Celerybeat worker
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: bash -c "scripts/celerybeat-docker.bash"
+    environment:
+      REDIS_HOST: redis://redis:6379/0
+    volumes:
+      - .:/code
+    links:
+      - redis
+      - db
+
+  # Django web server and celery master
+  web:
+    build: .
+    command: python3 manage.py runserver 0.0.0.0:8000
+    environment:
+      - DB_HOSTNAME=db
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    links:
+      - redis
+    depends_on:
+      - db
